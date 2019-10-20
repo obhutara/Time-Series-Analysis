@@ -1,0 +1,401 @@
+---
+title: "Time series Lab 2"
+author: "Omkar Bhutra (omkbh878)"
+date: "24 September 2019"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library("dplyr")
+library("ggplot2")
+library("knitr")
+library("kableExtra")
+library("MASS")
+library("astsa")
+library("kernlab")
+library("stats")
+library("aTSA")
+library("TSA")
+library("forecast")
+```
+
+###Assigntment 1. Computations with simulated data
+1a. Generate 1000 observations from AR(3) process with phi's 𝜙1=0.8,𝜙2=−0.2,𝜙3=0.1. Use these data and the definition of PACF to compute 𝜙33 from the sample, i.e. write your own code that performs linear regressions on necessarily lagged variables and then computes an appropriate correlation. Compare the result with the output of function pacf() and with the theoretical value of 𝜙33
+
+1000 observations are generated from $AR(3)$ with $\phi_{1}=0.8\phi_{2}=-0.2\phi_{3}=0.1$ 
+with the *arima.sim*. And we used the correlation from the first lag from the 
+*PACF* from the generated data to calculate the theoretical PACF using the *ARMAacf* 
+function. To compare the theoretical with the simulated data we used a linear 
+regression we created a $data frame$. $X$ is the simulated data from 
+$ARIMA(0.8,-0.2,0.1)$, $X1$ is $X$ minus one lag, $X2$ is $X$ minus 2 lags and $X3$ is
+$x$ minus 3 lags. Then saving the residuals from residuals from the linear regression 
+where $X$ is the dependent variable explained by $x1$ and $x2$. Also when $x3$ 
+is the dependent variable explained by $x1$ and $x2$. The manual calculated is preformed 
+by the correlation between the both residuals from the linear regressions. 
+
+```{r 1a, message=FALSE,error=FALSE,warning=FALSE}
+set.seed(12345)
+#simulate
+AR3 <- arima.sim(list(ar=c(0.8,-0.2,0.1)), n=1000)
+#theoretical pacf
+AR3pacf <- pacf(AR3)
+
+AR3data <-  ts.intersect(x = AR3,x1=stats::lag(AR3,1), x2=stats::lag(AR3,2), x3=stats::lag(AR3,3))
+
+AR_lm <- lm(x ~ x1+x2,data=AR3data)
+AR_lm_lag3 <- lm(x3 ~ x2+x1,data=AR3data)
+r1=residuals(AR_lm)
+r2=residuals(AR_lm_lag3)
+cor(cbind(r1,r2))
+
+cat(paste("The theoretical pacf by lag 3:", cor(cbind(r1,r2))[1,2]))
+```
+1b. Simulate an AR(2) series with phi's 𝜙1=0.8,𝜙2=0.1 and 𝑛n =100. Compute the estimated parameters and their standand errors by using three methods: method of moments (Yule-Walker equations), conditional least squares and maximum likelihood (ML) and compare their results to the true values. Which method does seem to give the best result? Does theoretical value for phi𝜙2 fall within confidence interval for ML estimate?
+
+```{r 1b, message=FALSE,error=FALSE,warning=FALSE}
+set.seed(12345)
+AR2 <- arima.sim(list(ar=c(0.8,0.1)), n=100)
+plot(AR2)
+pacf(AR2)
+paste("method of moments (Yule-Walker equations)")
+yulewalker <- ar.yw(AR2, aic=F, order.max=2)
+paste("estimated parameters")
+yulewalker$ar 
+paste("standard errors")
+yulewalker$asy.var.coef 
+
+paste("conditional least squares")
+condleastsquares <- arima(AR2,order=c(2,0,0), method = c("CSS"))
+paste("coefficient estimates")
+condleastsquares$model$phi 
+paste("standard errors")
+condleastsquares$var.coef
+
+paste("maximum likelihood")
+maxliklihood <- ar.mle(AR2, aic=F, order.max=2)
+paste("ar coefficient estimates")
+maxliklihood$ar 
+paste("standard errors")
+maxliklihood$asy.var.coef  
+```
+
+The results from the Yule walker seem to be the best parameters obtained. Yes, theoretical $phi_{2}$ is inside the confidence interval for the maximum liklihood estimate.
+
+1c. Generate 200 observations of a seasonal ARIMA𝐴𝑅𝐼𝑀𝐴(0,0,1)×(0,0,1)12 model with coefficients Θ=0.6 and 𝜃=0.3 by using arima.sim(). Plot sample ACF and PACF and also theoretical ACF and PACF. Which patterns can you see at the theoretical ACF and PACF? Are they repeated at the sample ACF and PACF?
+
+```{r 1c, message=FALSE,error=FALSE,warning=FALSE}
+set.seed(12345)
+ma.coeff <- c(0.3,rep(0,10),0.6)
+ar <- arima.sim(n=200, model = list(order=c(0,0,12), ma = ma.coeff))
+#ar.seasonal<- sarima(ar, 0, 0, 1, P = 0, D = 0, Q = 1, S = 12,Model = TRUE)
+theoretical_acf <- ARMAacf(ma = c(ma.coeff,0.3*0.6)) 
+theoretical_pacf <- ARMAacf(ma = c(ma.coeff,0.3*0.6),pacf = TRUE) 
+
+
+plot(theoretical_acf, type="h", main="Theoretical ACF")
+abline(h=0)
+
+sample_acf <- acf(ar, main="Sample ACF")
+plot(theoretical_pacf, type="h", main="Theoretical PACF")
+abline(h=0)
+
+sample_pacf <- pacf(ar, main="Sample PACF")
+
+```
+The ACF patterns are similar between the theoretical and sample observations. In theoretical ACF, there are large spikes at lags 1 and 13 while in sample ACF we have large spikes at 1 and 12 suggesting some correlation exits along the lags.
+In PACF patterns, the spikes are at lags 1 and 12 for both theoretical and sample.
+
+1c. Generate 200 observations of a seasonal ARIMA𝐴𝑅𝐼𝑀𝐴(0,0,1)×(0,0,1)12 model with coefficients Θ=0.6 and 𝜃=0.3 by using arima.sim(). Fit 𝐴𝑅𝐼𝑀𝐴(0,0,1)×(0,0,1)12 model to the data, compute forecasts and a prediction band 30 points ahead and plot the original data and the forecast with the prediction band. Fit the same data with function gausspr from package kernlab (use default settings). Plot the original data and predicted data from 𝑡=1 to 𝑡=230. Compare the two plots and make conclusions.
+
+```{r 1d, message=FALSE,error=FALSE,warning=FALSE}
+set.seed(12345)
+ma.coeff <- c(0.3,rep(0,10),0.6)
+ar <- arima.sim(n=200, model = list(order=c(0,0,12), ma = ma.coeff))
+ar_fit <- arima(ar,order = c(0,0,1),seasonal = list(order = c(0,0,1),period = 12))
+ar_pred <- predict(ar_fit,n.ahead = 30, se.fit = TRUE)
+
+#gausspr is an implementation of Gaussian processes for classification and regression
+gausspr_data <- data.frame(y = ar, x = 1:200)
+gausspr_fit <- kernlab::gausspr(y ~ x, gausspr_data)
+gausspr_pred <- predict(gausspr_fit, data.frame(x=201:230))
+
+par(mfrow=c(2, 1))
+plot(ts(c(ar, ar_pred$pred)), ylim=c(-4, 4), ylab="value", title = "Moving average model with prediction band")
+lines(200 + 1:length(ar_pred$pred), ar_pred$pred + 1.96 * ar_pred$se, lty=2, col="green")
+lines(200 + 1:length(ar_pred$pred), ar_pred$pred - 1.96 * ar_pred$se, lty=2, col="purple")
+plot(ar, xlim=c(0, 230), ylab="value",title = "Moving average model")
+lines(c(fitted(gausspr_fit), gausspr_pred), , col="red")
+
+par(mfrow=c(1, 1))
+#sarima for prediciton
+sarima.for(ar,30,0,0,1,0,0,1,12)
+```
+
+The prediction is reasonable for 12 months but then the model predicts the mean values for the next 18 months.
+The Gaussian process has an intial kink in the prediction and after that it remains linear due to the smooth fit to the observated data
+
+1e.Generate 50 observations from ARMA(1,1) process with phi 𝜙=0.7,𝜃=0.5. Use first 40 values to fit an ARMA(1,1) model with mu 𝜇=0. Plot the data, the 95% prediction band and plot also the true 10 values that you initially dropped. How many of them are outside the prediction band? How can this be interpreted?
+
+```{r 1e, message=FALSE,error=FALSE,warning=FALSE}
+set.seed(12345)
+ar <- arima.sim(model=list(ma=c(0.5), ar=c(0.7)), n=50)
+train <- ts(ar[1:40])
+test <- ts(ar[41:50])
+ar_fit <- arima(train, order=c(1, 0, 1), include.mean = F)
+ar_pred <- predict(ar_fit, n.ahead=10)
+
+plot(ts(c(train, test)), ylim=c(-4, 7), type="l", ylab="value")
+lines(40 + 1:length(test), ar_pred$pred, col="blue")
+lines(40 + 1:length(test), ar_pred$pred + 1.96 * ar_pred$se, lty=2, col="green")
+lines(40 + 1:length(test), ar_pred$pred - 1.96 * ar_pred$se, lty=2, col="purple")
+plot(40 + 1:length(test), test, ylim=c(-4, 7), xlim=c(40, 50), type="p", ylab="value", xlab="Time")
+points(40 + 1:length(test), ar_pred$pred, col="blue")
+lines(40 + 1:length(test), ar_pred$pred + 1.96 * ar_pred$se, lty=2, col="red")
+```
+
+Only one observaation lies outside the confidence interval , this means that since we expected 5/100 observations to be outside the 95% confidence interval, it is reasonable to find 1/10 to be outside.
+
+###Assigntment 2. ACF and PACF diagnostics
+```{r 2, message=FALSE,error=FALSE,warning=FALSE}
+acf_pacf_diag<- function(data){
+    par(mfrow = c(2, 2))
+    acf(data, lag.max = 40, main=" ACF")
+    pacf(data, lag.max = 40, main=" PACF")
+    acf(diff(data, lag = 1), lag.max = 40, main= "Difference 1 ACF")
+    pacf(diff(data, lag = 1), lag.max = 40, main= "Difference 1 PACF")
+    par(mfrow = c(2, 2))
+}
+```
+
+```{r 2.1, message=FALSE,error=FALSE,warning=FALSE}
+acf_pacf_diag(chicken)
+```
+
+ACF :The ACF on the original data suggests an AR or ARMA model since the ACF tails off.
+
+PACF: The PACF on the original data cuts off after lag 1 suggesting an AR(1) model.
+
+Difference 1 ACF:
+1st Differencing suggests seasonality in the data. The ACF tails off which suggests an AR model.
+
+Difference 1 PACF:
+The PACF shows that the seasonality cuts off after lag 12 which is 1 * 12 indicating an AR(1) model.
+
+$ARIMA(1, 0, 0) x (1, 1, 0)_{12}$ can be suggested.
+
+```{r 2.2, message=FALSE,error=FALSE,warning=FALSE}
+acf_pacf_diag(so2)
+```
+ACF: The ACF tails off suggesting either an AR or ARMA model.
+PACF: The PACF tails off , also suggesting an ARMA model.
+Difference 1 ACF: The ACF after difference cuts off after lag 1 suggesting a MA(1) model.
+Difference 1 PACF: The PACF after difference tails off further suggesting a MA(1) model.
+
+$ARIMA(0, 1, 1)$ can be suggested.
+\newpage
+
+```{r 2.3, message=FALSE,error=FALSE,warning=FALSE}
+acf_pacf_diag(EQcount)
+```
+ACF: The ACF tails off suggesting an AR or ARMA model.
+PACF: The PACF cuts off after lag 1 suggesting AR(1) model.
+Difference 1 Data ACF:
+The ACF after difference cuts off after lag 1 suggesting a MA(1) model.
+Difference 1 Data PACF:
+The PACF after difference tails off further suggesting a MA model.
+Either a ARMA(1, 0, 0) or ARMA(0, 1, 1) is suggested.
+\newpage
+
+```{r 2.4, message=FALSE,error=FALSE,warning=FALSE}
+acf_pacf_diag(HCT)
+```
+ACF: The ACF tails off suggesting either an AR or ARMA model.
+PACF: The PACF cuts off after lag 7 suggesting an AR(7) model.
+Difference 1 ACF:
+The ACF suggests seasonality that tails off after lag 7 suggesting an seasonality of 7.
+Difference 1 PACF:
+The PACF cuts off after 6 lags suggesting an AR(6) seasonality model.
+
+$ARIMA(7, 0, 0)X(1, 1, 0)_7$ model can be suggested.
+
+###Assigntment 3. ARIMA modelling cycle
+####Question 1
+```{r 3.1, message=FALSE,error=FALSE,warning=FALSE}
+log_oil <- log(oil)
+d_oil <- diff(oil)
+d_d_oil <- diff(oil, 2)
+d_log_oil <- diff(log_oil)
+d_d_log_oil <- diff(log_oil, 2)
+
+par(mfrow=c(3, 1))
+plot(oil, main="Oil")
+plot(d_oil, main="Difference 1 Oil")
+plot(d_d_oil, main="Difference 2 Oil")
+par(mfrow=c(3, 1))
+```
+
+\newpage
+
+```{r 3.1.1, message=FALSE,error=FALSE,warning=FALSE}
+par(mfrow=c(3, 1))
+plot(log_oil, main="Log Oil")
+plot(d_log_oil, main="Difference 1 Log Oil")
+plot(d_d_log_oil, main="Difference 2 Log Oil")
+par(mfrow=c(3, 1))
+```
+
+The logarithm transformed data is what we have to work with as it adjusts the scale appropriately for the price fluctuations. The first difference can be considered stationary and while the 2nd difference does not do much visual change. We can keep both models tentatively. 
+
+```{r 3.1.2, message=FALSE,error=FALSE,warning=FALSE}
+adf.test(oil)
+```
+
+```{r 3.1.3, message=FALSE,error=FALSE,warning=FALSE}
+adf.test(log_oil)
+```
+
+```{r 3.1.3.1, message=FALSE,error=FALSE,warning=FALSE}
+adf.test(d_log_oil)
+```
+
+```{r 3.1.4, message=FALSE,error=FALSE,warning=FALSE}
+adf.test(d_d_log_oil)
+```
+
+The augmented Dickey-Fuller test indicatest that we perform differencing to make the data stationary.
+
+```{r 3.1.5, message=FALSE,error=FALSE,warning=FALSE}
+par(mfrow=c(2, 1))
+acf(d_log_oil, lag.max=40, main="Difference 1 Log Oil ACF")
+pacf(d_log_oil, lag.max=40, main="Difference 1 Log Oil PACF")
+acf(d_d_log_oil, lag.max=40, main="Difference 2 Log Oil ACF")
+pacf(d_d_log_oil, lag.max=40, main="Difference 2 Log Oil PACF")
+
+```
+
+ACF and PACF for the 1st order differencing do not have any clearly defined patterns compared to the 2nd order differencing, where it is observed that ACF cuts off at lag 1 and trails off in the PACF suggesting an ARIMA(0,2,1) model.
+
+Computing the sample extended ACF: EACF analysis
+```{r 3.1.6, message=FALSE,error=FALSE,warning=FALSE}
+eacf(d_log_oil)
+```
+
+```{r 3.1.6.1, message=FALSE,error=FALSE,warning=FALSE}
+eacf(d_d_log_oil)
+```
+
+The EACF matrix for 1st order differencing make a general pattern of rectangles as compared to triangles.
+The EACF matrix for the 2nd order differencing has the triangular pattern with a point at AR(1) which confirms the previous statements in the ACF.
+
+```{r 3.1.6.2, message=FALSE,error=FALSE,warning=FALSE}
+ljungbox<- function(data) {
+print(Box.test(data, lag = 1, type = "Ljung-Box"))
+}
+ljungbox(oil)
+```
+
+```{r 3.1.7, message=FALSE,error=FALSE,warning=FALSE}
+fit1 <- Arima(log_oil, order=c(1, 1, 1))
+fit1
+fit2 <- Arima(log_oil, order=c(1, 2, 2))
+fit2
+fit3 <- Arima(log_oil, order=c(0, 2, 1))
+fit3
+fit_plot <- function(model) {
+    pred <- predict(model, n.ahead=20, se.fit=TRUE)
+    upper_band <- pred$pred + 1.96 * pred$se
+    lower_band <- pred$pred - 1.96 * pred$se
+    n <- length(model$x)
+    plot(c(model$x, pred$pred), type="l",
+         xlim=c(n - 20, n + 20),
+         ylim=c(min(lower_band), max(upper_band)), ylab="Value", xlab="Time")
+    lines(n + 1:20, upper_band, lty=2, col="green")
+    lines(n + 1:20, lower_band, lty=2, col="purple")
+}
+fit_plot(fit3)
+```
+The best model if we evaluate the BIC criterion we choose the ARIMA(0,2,1) which looks like following $$\bigtriangledown^2x_t = (1+\theta B)w_t $$
+
+The fig. above displays a prediction of 20 timesteps. The prediction is marked by a kink and a linear prediction value. The intervals also look reasonable
+
+####Question 2
+```{r 3.2, message=FALSE,error=FALSE,warning=FALSE}
+log_unemp <- log(unemp)
+d_unemp <- diff(unemp)
+d_d_unemp <- diff(unemp, 2)
+d_log_unemp <- diff(log_unemp)
+d_d_log_unemp <- diff(log_unemp, 2)
+
+par(mfrow=c(3, 1))
+plot(unemp, main="Unemployment")
+plot(d_unemp, main="Difference 1 Unemployment")
+plot(d_d_unemp, main="Difference 2 Unemployment")
+par(mfrow=c(3, 1))
+```
+
+
+```{r 3.2.1, message=FALSE,error=FALSE,warning=FALSE}
+par(mfrow=c(3, 1))
+plot(log_unemp, main="Log Unemployment")
+plot(d_log_unemp, main="Difference 1 Log Unemployment")
+plot(d_d_log_unemp, main="Difference 2 Log Unemployment")
+par(mfrow=c(3, 1))
+```
+
+The data is not stationary visually and hence, differencing is done by the order of 1. Variance seems to be increasing with time which is reduced on transformation with the log scale.
+Differencing of the order 2 gives a smoother result.
+
+```{r 3.2.2, message=FALSE,error=FALSE,warning=FALSE}
+par(mfrow=c(2, 1))
+acf(d_log_unemp, lag.max=40, main="Difference 1 Log Unemployment ACF")
+pacf(d_log_unemp, lag.max=40, main="Difference 1 Log Unemployment PACF")
+acf(d_d_log_unemp, lag.max=40, main="Difference 2 Log Unemployment ACF")
+pacf(d_d_log_unemp, lag.max=40, main="Difference 2 Log Unemployment PACF")
+
+```
+
+
+Difference 1
+\textbf{Seasonality behavior:} The ACF plot suggests seasonality at 12 lags that tails off both in the ACF and the PACF. This suggests an $ARMA_12$ seasonality component. The PACF spikes at 3 multiples which is indicative of AR(3).
+\textbf{Non-seasonality behavior:} There is no distinct non-seasonal pattern to be seen.
+Our model for this data is SARMA$(3, 1, 0)_{12}$.
+
+Difference 2
+\textbf{Seasonality behavior:} Large spikes at lags 9, 12, 15 are observed and then it is fades till the pattern repeats at lags 21, 24, 27. So there is definitely a seasonality pattern in the data. The PACF shows that the pattern tails off over time with spikes at two 2 multiples which indicates AR(2).
+
+\textbf{Non-seasonality behavor:} Apart from the seasonal behavior the ACF tails off and the PACF cuts off after lag 2 indicating an AR(2) model.
+
+```{r 3.2.3.1, message=FALSE,error=FALSE,warning=FALSE}
+adf.test(d_log_oil)
+```
+
+```{r 3.2.3.2, message=FALSE,error=FALSE,warning=FALSE}
+adf.test(d_d_log_oil)
+```
+
+The EACF suggests that there no ARMA model well suited to this data.
+
+```{r 3.2.4, message=FALSE,error=FALSE,warning=FALSE}
+fit1 <- Arima(log_unemp, order=c(0, 0, 0), seasonal=c(3, 1, 0))
+fit1
+fit2 <- Arima(log_unemp, order=c(0, 0, 0), seasonal=c(2, 2, 0))
+fit2
+```
+
+The second fit has better BIC/AIC which is then our final model. It can be written formally as
+
+\begin{equation*}
+(1 + 0.6655 B + 0.3370 B^2) \bigtriangledown^2 x_t = w_t.
+\end{equation*}
+
+```{r 3.2.4.1, message=FALSE,error=FALSE,warning=FALSE,echo=FALSE,include=FALSE}
+ljungbox(unemp)
+```
+
+```{r 3.2.5, message=FALSE,error=FALSE,warning=FALSE}
+fit_plot(fit2)
+```
